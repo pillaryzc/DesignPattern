@@ -136,7 +136,6 @@ p
 
 */
 
-
 /*
 三: move and escape
 下面的代码会报错
@@ -246,8 +245,7 @@ fn move_closure_keyword2() {
     make_closure()(); //调用闭包
 }
 
-
-/* 下面代码编译器回隐式实现三个特性FnOnce ,Fn , FnMut */
+/* 下面代码编译器会隐式实现三个特性FnOnce ,Fn , FnMut */
 fn test() {
     #[derive(Debug)]
     // 定义一个简单的结构体T
@@ -273,7 +271,7 @@ fn test() {
         Box::new(move |y| x + y)
     }
 
-    fn test_closure(){
+    fn test_closure() {
         let x = T(10);
         let mut y = T(20);
         let mut z = T(30);
@@ -286,13 +284,119 @@ fn test() {
             by_ref(x_ref); // 使用不可变引用
             by_ref(&*y_mut); // 解引用后再获取不可变引用
             by_ref(&z); // 直接获取z的不可变引用
-    
+
             by_mut(y_mut); // 使用可变引用
             by_mut(&mut z); // 获取z的可变引用
-    
+
             by_value(z); // 通过值使用z
         };
         // 调用闭包
         closure();
+    }
+}
+
+/* 感受一下闭包的语法，和去糖后的语法 */
+/* fn simple_explicit_closure() {
+    let mut v = vec![];
+
+    // nice form
+    let closure = || v.push(1);
+
+    // explicit form
+    struct Environment<'v> {
+        v: &'v mut Vec<i32>,
+    }
+
+    // let's try implementing `Fn` not pass but FnMut or FnOnce is ok    tips: fllowing code need nightly and #![feature(fn_traits)] 和 #![feature(unboxed_closures)]。
+    impl<'v> FnMut() for Environment<'v> {
+        fn call_mut(&mut self) {
+            self.v.push(1) // error: cannot borrow data mutably
+        }
+    }
+
+    let closure = Environment { v: &mut v };
+}
+ */
+
+/*
+ 四：闭包捕获到的环境在什么情况下分配在栈上，什么情况下分配在堆？ （内容不一定正确）
+
+1.以下是一些可能导致闭包使用堆分配的情况：
+
+1.1长生命周期的捕获：
+如果闭包需要在其定义的作用域之外使用，例如作为函数返回值或存储在全局变量中，那么闭包及其捕获的环境需要在堆上分配。
+这是因为栈上的变量在其作用域结束时会被销毁，而堆上的数据可以跨作用域存活。
+
+1.2捕获大型数据：
+如果闭包捕获了大型数据（如大数组或大型结构体），并且这些数据的大小超出了栈的容量限制，那么这些数据可能会在堆上分配。
+栈空间通常有限，不适合存储大量数据。
+
+1.3动态环境捕获：
+当闭包动态决定捕获哪些变量时（例如，基于运行时条件），这些变量可能在堆上分配，特别是当它们的总大小在编译时无法确定时。
+
+1.4递归闭包：
+在某些情况下，例如递归闭包，闭包可能需要在堆上分配，以避免栈溢出。递归闭包在每次递归调用时都可能捕获新的环境。
+
+1.5跨线程共享：
+如果闭包需要在多个线程之间共享，例如作为多线程环境中的任务，它们通常需要在堆上分配。这是因为不同线程的栈空间是隔离的，而堆空间是线程之间共享的。
+
+1.6闭包捕获 Box 或其他智能指针：
+如果闭包捕获了 Box、Rc、Arc 等智能指针类型的变量，那么这些变量本身已经在堆上分配。
+
+总之，闭包是否在堆上分配取决于其捕获的数据类型、数据大小、生命周期以及如何使用这些闭包。Rust 的闭包设计旨在最大化性能和灵活性，使得在多数常见情况下闭包可以有效地存储在栈上。
+
+
+2.分配在栈上的情况通常具有以下特点，这些特点使得栈成为存储数据的理想选择：
+
+有限的生命周期：
+栈上的数据通常具有有限的生命周期，即它们只在声明它们的特定作用域（如函数）内存在。一旦作用域结束，栈上的数据就会被自动清理掉。
+
+大小在编译时已知：
+栈上的变量通常需要在编译时就确定其大小。这意味着像数组这样的数据结构，如果要存储在栈上，其大小必须在编译时已知。
+
+小型数据：
+由于栈空间相对有限，通常只适用于存储小型数据。对于大型数据结构，更倾向于在堆上分配。
+
+非递归和无需跨作用域共享：
+栈上的数据不适合用于递归场景，也不适合在作用域之间共享，因为这可能导致栈溢出或生命周期问题。
+
+值类型数据：
+栈通常用于存储基本数据类型和小型结构体，这些类型在分配和销毁时开销较小。
+
+快速分配和释放：
+栈内存的分配和释放非常快速。它不涉及复杂的内存管理算法，仅仅是移动栈指针。
+
+无需动态扩展：
+栈上的数据不适用于动态扩展的场景，因为栈的大小在程序启动时就已经确定。
+
+线程局部存储：
+每个线程都有自己的栈，因此栈上的数据是线程局部的。这意味着在多线程环境中，栈上的数据自然地避免了共享状态的复杂性。
+
+在 Rust 中，这些特点使得栈成为许多变量（特别是闭包捕获的变量）的理想存储位置，因为它们满足了快速、简单和安全的内存管理的需求。
+
+  */
+
+
+
+  /* n! 闭包递归版本实现 */
+fn dfs_closure_test() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    fn main() {
+        let factorial: Rc<RefCell<Box<dyn Fn(i32) -> i32>>> =
+            Rc::new(RefCell::new(Box::new(|_| 0)));
+        let factorial_clone = factorial.clone();
+
+        *factorial.borrow_mut() = Box::new(move |n| {
+            if n <= 1 {
+                1
+            } else {
+                n * factorial_clone.borrow()(n - 1)
+            }
+        });
+
+        let result = factorial.borrow()(5);
+        println!("Factorial of 5 is {}", result);
     }
 }
