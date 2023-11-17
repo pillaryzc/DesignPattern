@@ -1,5 +1,7 @@
 //全部内容来自:https://huonw.github.io/blog/2015/05/finding-closure-in-rust/
 
+use std::{rc::{self, Rc}, thread};
+
 /* 一: what is closure ? the captures to closing over or capturing variables*/
 #[test]
 fn first_look_of_closure() {
@@ -348,37 +350,94 @@ fn test() {
 
 2.分配在栈上的情况通常具有以下特点，这些特点使得栈成为存储数据的理想选择：
 
-有限的生命周期：
+2.1有限的生命周期：
 栈上的数据通常具有有限的生命周期，即它们只在声明它们的特定作用域（如函数）内存在。一旦作用域结束，栈上的数据就会被自动清理掉。
 
-大小在编译时已知：
+2.2大小在编译时已知：
 栈上的变量通常需要在编译时就确定其大小。这意味着像数组这样的数据结构，如果要存储在栈上，其大小必须在编译时已知。
 
-小型数据：
+2.3小型数据：
 由于栈空间相对有限，通常只适用于存储小型数据。对于大型数据结构，更倾向于在堆上分配。
 
-非递归和无需跨作用域共享：
+2.4非递归和无需跨作用域共享：
 栈上的数据不适合用于递归场景，也不适合在作用域之间共享，因为这可能导致栈溢出或生命周期问题。
 
-值类型数据：
+2.5值类型数据：
 栈通常用于存储基本数据类型和小型结构体，这些类型在分配和销毁时开销较小。
 
-快速分配和释放：
+2.6快速分配和释放：
 栈内存的分配和释放非常快速。它不涉及复杂的内存管理算法，仅仅是移动栈指针。
 
-无需动态扩展：
+2.7无需动态扩展：
 栈上的数据不适用于动态扩展的场景，因为栈的大小在程序启动时就已经确定。
 
-线程局部存储：
+2.8线程局部存储：
 每个线程都有自己的栈，因此栈上的数据是线程局部的。这意味着在多线程环境中，栈上的数据自然地避免了共享状态的复杂性。
 
 在 Rust 中，这些特点使得栈成为许多变量（特别是闭包捕获的变量）的理想存储位置，因为它们满足了快速、简单和安全的内存管理的需求。
 
   */
 
+/* 1.1长生命周期的捕获 */
+#[test]
+fn long_live_closure_maker() {
+    fn make_closure() -> Box<dyn Fn(i32) -> i32> {
+        let num = 1;
+        let closure = move |x| {
+            let ans = num + x;
+            ans
+        };
 
+        Box::new(closure)
+    }
 
-  /* n! 闭包递归版本实现 */
+    fn make_closure_1(input: Rc<i32>) -> Box<dyn Fn(i32) -> i32> {
+        Box::new(move |x| x + *input)
+    }
+
+    fn main() {
+        let mut num = Rc::new(1);
+        let closure = make_closure_1(num.clone());
+        let ans = closure(6);
+        println!("{}", ans)
+    }
+    main()
+}
+
+/* 1.3动态环境捕获 */
+#[test]
+fn dyn_env_capt() {
+    fn closure_maker() -> Box<dyn Fn() -> i32> {
+        let condition = true;
+        let env1 = 1;
+        let env2 = 2;
+        if condition {
+            Box::new(move || env1 + 1)
+        } else {
+            Box::new(move || env2 + 1)
+        }
+    }
+
+    fn main() {
+        let closure = closure_maker();
+        let ans = closure();
+        assert_eq!(2, ans);
+    }
+
+    main()
+}
+
+/* 1.4递归闭包：n! 闭包递归版本实现
+
+在 Rust 中，闭包通常以匿名函数的形式出现，可以捕获并使用它们所在作用域中的变量。
+然而，当你想要在闭包内部递归地调用自身时，就会遇到一个问题：在闭包体内部，闭包本身还没有完全定义好，因此无法直接引用自身。
+这就需要一种方法来间接地引用闭包自身。
+
+解决这个问题的一种常见方法是创建闭包的副本。
+在 Rust 中，这通常通过智能指针（如 Rc<RefCell<T>> 或 Arc<Mutex<T>>）来实现，
+它们允许多个所有者共享同一个值，并提供修改该值的能力。这样，闭包内部就可以通过这些智能指针间接地引用并调用自身，实现递归。
+  */
+#[test]
 fn dfs_closure_test() {
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -399,4 +458,68 @@ fn dfs_closure_test() {
         let result = factorial.borrow()(5);
         println!("Factorial of 5 is {}", result);
     }
+
+    main()
+}
+
+
+
+/* 1.5跨线程共享 */
+#[test]
+fn mutil_thread_share_data() {
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    fn main() {
+        let shared_data = Arc::new(Mutex::new(0));
+        let mut handles = vec![];
+
+        for _ in 0..10 {
+            let shared_data_clone = Arc::clone(&shared_data);
+            let handle = thread::spawn(move || {
+                let mut data = shared_data_clone.lock().unwrap();
+                *data += 1;
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        println!("Result: {}", *shared_data.lock().unwrap());
+    }
+
+    main()
+}
+
+
+
+
+/* 2.8线程局部存储 */
+#[test]
+fn thread_local_data(){
+    thread_local! {
+        static THREAD_COUNT: std::cell::RefCell<i32> = std::cell::RefCell::new(0);
+    }
+
+    fn test_mutil_thread_count(){
+        let mut handle = vec![];
+        for i in 0..5{
+            let t = thread::spawn(|| 
+            {
+                THREAD_COUNT.with(|count| {
+                    *count.borrow_mut() += 1;
+                    println!("{:?}",*count.borrow());
+                })
+            }
+            );
+            handle.push(t)
+        }
+
+        for i in handle{
+            i.join();
+        }
+    }
+    test_mutil_thread_count()
 }
