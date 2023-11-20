@@ -7,5 +7,4 @@ mod memo_pattern;
 mod closure;
 
 fn main() {
-    println!("Hello, world!");
 }
