@@ -165,7 +165,7 @@ fn test_closure_safe_sharing(){
 
     fn main() {
         let message: &'static str = "hello";
-        upto(move |i| println!("thread #{}: {}", i, message),10);
+        upto( move |i| println!("thread #{}: {}", i, message),10);
     
         // as above, don't let `main` finish
         thread::sleep(Duration::from_millis(100));

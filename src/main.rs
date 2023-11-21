@@ -5,6 +5,7 @@ mod adapter_pattern;
 mod unsage_code;
 mod memo_pattern;
 mod closure;
+mod leetcode;
 
 fn main() {
 }
