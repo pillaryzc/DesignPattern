@@ -340,7 +340,6 @@ fn test_callback_programming() {
     }
 }
 
-
 /* Waker 唤醒器
 1.了解 Waker 对象是如何构造的
 2.了解运行时如何知道leaf-future何时可以恢复
@@ -447,9 +446,282 @@ fn costom_fat_ptr() {
     main();
 }
 
-
 /* 生成器
 1.理解 async / await 语法在底层是如何工作的
 2/亲眼目睹(See first hand)我们为什么需要Pin
 3.理解是什么让 Rusts 异步模型的内存效率非常高
 */
+#[test]
+fn yied_code_with_generator() {
+    /*
+    let mut gen = move || {
+        let to_borrow = String::from("Hello");
+        let borrowed = &to_borrow;
+        yield borrowed.len();
+        println!("{} world!", borrowed);
+    };
+    上述代码解糖后了类似下面代码
+     */
+
+    #![feature(never_type)] // Force nightly compiler to be used in playground
+                            // by betting on it's true that this type is named after it's stabilization date...
+    pub fn main() {
+        let mut gen = GeneratorA::start();
+        let mut gen2 = GeneratorA::start();
+
+        if let GeneratorState::Yielded(n) = gen.resume() {
+            println!("Got value {}", n);
+        }
+
+        std::mem::swap(&mut gen, &mut gen2); // <--- Big problem!
+
+        if let GeneratorState::Yielded(n) = gen2.resume() {
+            println!("Got value {}", n);
+        }
+
+        // This would now start gen2 since we swapped them.
+        if let GeneratorState::Complete(()) = gen.resume() {
+            ()
+        };
+    }
+    enum GeneratorState<Y, R> {
+        Yielded(Y),
+        Complete(R),
+    }
+
+    trait Generator {
+        type Yield;
+        type Return;
+        fn resume(&mut self) -> GeneratorState<Self::Yield, Self::Return>;
+    }
+
+    enum GeneratorA {
+        Enter,
+        Yield1 {
+            to_borrow: String,
+            borrowed: *const String,
+        },
+        Exit,
+    }
+
+    impl GeneratorA {
+        fn start() -> Self {
+            GeneratorA::Enter
+        }
+    }
+    impl Generator for GeneratorA {
+        type Yield = usize;
+        type Return = ();
+        fn resume(&mut self) -> GeneratorState<Self::Yield, Self::Return> {
+            match self {
+                GeneratorA::Enter => {
+                    let to_borrow = String::from("Hello");
+                    let borrowed = &to_borrow;
+                    let res = borrowed.len();
+                    *self = GeneratorA::Yield1 {
+                        to_borrow,
+                        borrowed: std::ptr::null(),
+                    };
+
+                    // We set the self-reference here
+                    if let GeneratorA::Yield1 {
+                        to_borrow,
+                        borrowed,
+                    } = self
+                    {
+                        *borrowed = to_borrow;
+                    }
+
+                    GeneratorState::Yielded(res)
+                }
+
+                GeneratorA::Yield1 { borrowed, .. } => {
+                    let borrowed: &String = unsafe { &**borrowed };
+                    println!("{} world", borrowed);
+                    *self = GeneratorA::Exit;
+                    GeneratorState::Complete(())
+                }
+                GeneratorA::Exit => panic!("Can't advance an exited generator!"),
+            }
+        }
+    }
+
+    main()
+}
+
+/* Pinning和自引用结构 */
+
+/* Pin解决的问题如下 */
+fn problem_code() {
+    use std::pin::Pin;
+
+    #[derive(Debug)]
+    struct Test {
+        a: String,
+        b: *const String,
+    }
+
+    impl Test {
+        fn new(txt: &str) -> Self {
+            let a = String::from(txt);
+            Test {
+                a,
+                b: std::ptr::null(),
+            }
+        }
+
+        fn init(&mut self) {
+            let self_ref: *const String = &self.a;
+            self.b = self_ref;
+        }
+
+        fn a(&self) -> &str {
+            &self.a
+        }
+
+        fn b(&self) -> &String {
+            unsafe { &*(self.b) }
+        }
+    }
+
+    fn ok_main() {
+        let mut test1 = Test::new("test1");
+        test1.init();
+        let mut test2 = Test::new("test2");
+        test2.init();
+
+        println!("a: {}, b: {}", test1.a(), test1.b());
+        println!("a: {}, b: {}", test2.a(), test2.b());
+    }
+
+    fn not_ok_main() {
+        let mut test1 = Test::new("test1");
+        test1.init();
+        let mut test2 = Test::new("test2");
+        test2.init();
+
+        println!("a: {}, b: {}", test1.a(), test1.b());
+        std::mem::swap(&mut test1, &mut test2);
+        println!("a: {}, b: {}", test2.a(), test2.b());
+    }
+}
+
+#[test]
+fn test_pin() {
+    use std::marker::PhantomPinned;
+    use std::mem;
+    use std::pin::Pin;
+
+    #[derive(Debug)]
+    struct Test {
+        a: String,
+        b: *const String,
+        _marker: PhantomPinned,
+    }
+
+    impl Test {
+        fn new(txt: &str) -> Self {
+            Test {
+                a: String::from(txt),
+                b: std::ptr::null(),
+                _marker: PhantomPinned, // This makes our type `!Unpin`
+            }
+        }
+        fn init<'a>(self: Pin<&'a mut Self>) {
+            let self_ptr: *const String = &self.a;
+            let this = unsafe { self.get_unchecked_mut() };
+            this.b = self_ptr;
+        }
+
+        fn a<'a>(self: Pin<&'a Self>) -> &'a str {
+            &self.get_ref().a
+        }
+
+        fn b<'a>(self: Pin<&'a Self>) -> &'a String {
+            unsafe { &*(self.b) }
+        }
+    }
+    fn main() {
+        let mut test1 = Test::new("test1");
+        let mut test1_pin = unsafe { Pin::new_unchecked(&mut test1) };
+        Test::init(test1_pin.as_mut());
+        drop(test1_pin);
+
+        let mut test2 = Test::new("test2");
+        mem::swap(&mut test1, &mut test2);
+        println!("Not self referential anymore: {:?}", test1.b);
+    }
+    // main()
+
+    //下面代码会编译不通过，因为被pin在栈上的数据不应许被swap
+    //变量阴影（Shadowing）和错误的使用
+    // pub fn main_1() {
+    //     let mut test1 = Test::new("test1");
+    //     let mut test1 = unsafe { Pin::new_unchecked(&mut test1) };
+    //     Test::init(test1.as_mut());
+
+    //     let mut test2 = Test::new("test2");
+    //     let mut test2 = unsafe { Pin::new_unchecked(&mut test2) };
+    //     Test::init(test2.as_mut());
+
+    //     println!("a: {}, b: {}", Test::a(test1.as_ref()), Test::b(test1.as_ref()));
+    //     std::mem::swap(test1.get_mut(), test2.get_mut());
+    //     println!("a: {}, b: {}", Test::a(test2.as_ref()), Test::b(test2.as_ref()));
+    // }
+    // main_1();
+}
+
+/* 变量阴影（Shadowing）的解决办法：
+1.避免在栈上创建并返回自引用结构：
+如果你需要创建自引用结构，考虑在堆上创建。例如，使用 Box 来分配堆内存，然后通过 Pin 来固定它。这样可以在函数返回后保持对象的有效性。
+
+2.正确管理固定的对象：
+当使用 Pin 固定对象时，需要谨慎地管理这个对象。确保不再对原始对象进行操作，尤其是在它被固定之后。
+
+3.使用类型系统防止错误：
+考虑使用 Rust 的类型系统来强制执行正确的用法。例如，可以设计类型使得只有固定（Pinned）的版本可以被初始化。
+*/
+
+//1.Pinning to the heap + 始化Pin类型
+fn pinning_to_heap() {
+    use std::marker::PhantomPinned;
+    use std::pin::Pin;
+
+    #[derive(Debug)]
+    struct Test {
+        a: String,
+        b: *const String,
+        _marker: PhantomPinned,
+    }
+
+    impl Test {
+        fn new(txt: &str) -> Pin<Box<Self>> {
+            let t = Test {
+                a: String::from(txt),
+                b: std::ptr::null(),
+                _marker: PhantomPinned,
+            };
+            let mut boxed = Box::pin(t);
+            let self_ptr: *const String = &boxed.as_ref().a;
+            unsafe { boxed.as_mut().get_unchecked_mut().b = self_ptr };
+
+            boxed
+        }
+
+        fn a<'a>(self: Pin<&'a Self>) -> &'a str {
+            &self.get_ref().a
+        }
+
+        fn b<'a>(self: Pin<&'a Self>) -> &'a String {
+            unsafe { &*(self.b) }
+        }
+    }
+
+    pub fn main() {
+        let mut test1 = Test::new("test1");
+        let mut test2 = Test::new("test2");
+
+        println!("a: {}, b: {}", test1.as_ref().a(), test1.as_ref().b());
+        println!("a: {}, b: {}", test2.as_ref().a(), test2.as_ref().b());
+    }
+}

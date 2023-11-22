@@ -26,3 +26,8 @@ pub fn find_champion_II(n: i32, edges: Vec<Vec<i32>>) -> i32 {
     });
     ans
 }
+
+
+pub fn maximum_score_after_operations(edges: Vec<Vec<i32>>, values: Vec<i32>) -> i64 {
+    todo!()
+}
