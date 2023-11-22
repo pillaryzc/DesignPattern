@@ -1,0 +1,11 @@
+{
+    "rust-analyzer.runnables.command": "cargo +nightly",
+    "rust-analyzer.check.overrideCommand": [
+        "cargo",
+        "+nightly",
+        "check",
+        "--workspace",
+        "--message-format=json",
+        "--all-targets"
+    ]
+}
