@@ -267,7 +267,7 @@ fn main() {
 一个极其简单的基于回调方法的例子是:
 */
 
-use std::{marker::PhantomPinned, pin::Pin};
+use std::{marker::PhantomPinned, pin::Pin, string};
 
 use crate::main;
 
@@ -892,4 +892,50 @@ fn pin_fix_generator() {
             }
         }
     }
+}
+
+#[test]
+fn monk_pin_data_in_heap() {
+    struct Test {
+        a: String,
+        b: *const String,
+        _mark:PhantomPinned,
+    }
+    impl Test {
+        fn new(s:&str)->Pin<Box<Self>>{
+            let mut t = Test{
+                a:String::from(s),
+                b:std::ptr::null(),
+                _mark:PhantomPinned,
+            };
+            let mut boxed = Box::pin(t);
+            let self_ptr = &boxed.as_ref().a;
+            unsafe{
+                boxed.as_mut().get_unchecked_mut().b = self_ptr;
+            }
+            boxed
+        }
+
+        fn a<'a>(self:Pin<&'a Self> )->&'a str{
+            self.get_ref().a.as_ref()
+        }
+
+        fn b<'a>(self:Pin<&'a Self>)->&'a String{
+            unsafe{
+                &*(self.b)
+            }
+        }
+
+    }
+
+    fn main(){
+        let mut  pin1 = Test::new("pillar");
+        let mut pin2 = Test::new("ss");
+        
+        println!("{}---{}",pin1.as_ref().a(),pin1.as_ref().b());
+        std::mem::swap(&mut pin1, &mut pin2);
+        println!("{}---{}",pin1.as_ref().a(),pin1.as_ref().b());
+    }
+
+    main()
 }
