@@ -1,2 +1,4 @@
 target/
 .vscode/
+target/.rustc_info.json
+.rustc_info.json
