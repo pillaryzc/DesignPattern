@@ -7,6 +7,7 @@ mod memo_pattern;
 mod closure;
 mod leetcode;
 mod implement_my_futrue;
+mod enum_stu;
 
 fn main() {
 }
