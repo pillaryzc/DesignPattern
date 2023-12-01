@@ -8,6 +8,7 @@ mod closure;
 mod leetcode;
 mod implement_my_futrue;
 mod enum_stu;
+mod error_stu;
 
 fn main() {
 }
