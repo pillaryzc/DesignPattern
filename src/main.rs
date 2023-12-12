@@ -9,6 +9,7 @@ mod leetcode;
 mod implement_my_futrue;
 mod enum_stu;
 mod error_stu;
+mod hexagonal_architecture;
 
 fn main() {
 }
