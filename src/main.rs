@@ -10,6 +10,10 @@ mod implement_my_futrue;
 mod enum_stu;
 mod error_stu;
 mod hexagonal_architecture;
+mod test_git;
 
 fn main() {
+    let s = String::from("hello word ");
+    
+    println!("{:?}",s)
 }
