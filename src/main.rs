@@ -15,6 +15,7 @@ mod test_git;
 fn main() {
    
 
+   mod TestGit{
     let test = String::from("test git ");
 
 
@@ -30,4 +31,5 @@ fn main() {
 
     let test = String::from("test git ");
 
+   }
 }
