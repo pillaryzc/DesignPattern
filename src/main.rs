@@ -13,7 +13,21 @@ mod hexagonal_architecture;
 mod test_git;
 
 fn main() {
+   
+
+    let test = String::from("test git ");
+
+
+
+
+
+
+
     let s = String::from("hello word ");
-    
-    println!("{:?}",s)
+
+    println!("{:?}",s);
+
+
+    let test = String::from("test git ");
+
 }
